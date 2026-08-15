@@ -84,8 +84,9 @@ We'd like to thank [PsiPi](https://huggingface.co/PsiPi) for sharing an interest
 **Option 1: Launch Gradio demo**
 
 ```bash
-python demo/gradio_demo.py --model_path vibevoice/VibeVoice-1.5B --share
-# or python demo/gradio_demo.py --model_path vibevoice/VibeVoice-7B --share
+python demo/gradio_demo.py --model_path vibevoice/VibeVoice-1.5B
+# or python demo/gradio_demo.py --model_path vibevoice/VibeVoice-7B
+# add --share only if you want a temporary public gradio.live URL
 # optionally add --checkpoint_path path/to/checkpoint to load a fine-tuned adapter
 # use the in-app "Disable voice cloning" setting (Advanced Settings) to skip speaker conditioning
 ```
