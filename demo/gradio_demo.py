@@ -206,7 +206,43 @@ class VibeVoiceDemo:
             print(f"Error reading audio {audio_path}: {e}")
             return np.array([])
     
-    def generate_podcast_streaming(self, 
+    def save_custom_voice(self, audio_path: str, name: str, language: str, gender: str) -> str:
+        """Store an uploaded sample as a voice preset and refresh the preset list."""
+        if not audio_path:
+            raise gr.Error("Upload or record an audio sample first.")
+
+        clean_name = re.sub(r"[^A-Za-z0-9]", "", (name or "").strip())
+        if not clean_name:
+            raise gr.Error("Enter a voice name containing letters or numbers.")
+
+        wav = self.read_audio(audio_path)
+        if wav.size == 0:
+            raise gr.Error("That file could not be decoded as audio.")
+
+        # Voice notes often open and close on dead air, which conditions poorly.
+        wav, _ = librosa.effects.trim(wav, top_db=30)
+
+        duration = len(wav) / 24000
+        if duration < 3:
+            raise gr.Error(f"Sample is only {duration:.1f}s. Use at least 3s of clean speech.")
+        # Longer references cost conditioning time without improving the clone.
+        wav = wav[:30 * 24000]
+
+        peak = np.max(np.abs(wav))
+        if peak > 0:
+            wav = wav / peak * 0.95
+
+        preset = f"{language}-{clean_name}_{gender}"
+        voices_dir = os.path.join(os.path.dirname(__file__), "voices")
+        target = os.path.join(voices_dir, f"{preset}.wav")
+        if os.path.exists(target):
+            raise gr.Error(f"A voice named '{preset}' already exists. Pick a different name.")
+
+        sf.write(target, wav, 24000, subtype="PCM_16")
+        self.setup_voice_presets()
+        return preset
+
+    def generate_podcast_streaming(self,
                                  num_speakers: int,
                                  script: str,
                                  speaker_1: str = None,
@@ -743,7 +779,36 @@ def create_demo_interface(demo_instance: VibeVoiceDemo):
                         elem_classes="speaker-item"
                     )
                     speaker_selections.append(speaker)
-                
+
+                with gr.Accordion("➕ Add Custom Voice", open=False):
+                    gr.Markdown(
+                        "Upload 3–30s of clean speech from a **single speaker**, with no music "
+                        "or background noise. The sample is converted to 24 kHz mono and saved "
+                        "as a reusable preset.\n\n"
+                        "*The model is trained on English and Chinese. Other languages clone the "
+                        "speaker's timbre, but pronunciation may be accented — see FINETUNING.md "
+                        "to properly adapt a new language.*"
+                    )
+                    custom_voice_audio = gr.Audio(
+                        sources=["upload", "microphone"],
+                        type="filepath",
+                        label="Reference sample",
+                    )
+                    with gr.Row():
+                        custom_voice_name = gr.Textbox(
+                            label="Name", placeholder="Maria", scale=2
+                        )
+                        custom_voice_lang = gr.Dropdown(
+                            choices=["es", "en", "zh", "in"], value="es",
+                            label="Language", scale=1
+                        )
+                        custom_voice_gender = gr.Dropdown(
+                            choices=["woman", "man"], value="woman",
+                            label="Voice", scale=1
+                        )
+                    save_voice_btn = gr.Button("💾 Save Voice", variant="secondary")
+                    custom_voice_status = gr.Markdown("")
+
                 # Advanced settings
                 gr.Markdown("### ⚙️ **Advanced Settings**")
                 
@@ -892,7 +957,22 @@ Or paste text directly and it will auto-assign speakers.""",
             inputs=[num_speakers],
             outputs=speaker_selections
         )
-        
+
+        def add_custom_voice(audio_path, name, language, gender, *current_speakers):
+            """Save the upload, then re-offer it in every speaker dropdown."""
+            preset = demo_instance.save_custom_voice(audio_path, name, language, gender)
+            choices = list(demo_instance.available_voices.keys())
+            # Echo current picks back so refreshing the choices doesn't clear them.
+            updates = [gr.update(choices=choices, value=v) for v in current_speakers]
+            return updates + [f"✅ Saved **{preset}** — select it in any Speaker dropdown."]
+
+        save_voice_btn.click(
+            fn=add_custom_voice,
+            inputs=[custom_voice_audio, custom_voice_name, custom_voice_lang,
+                    custom_voice_gender] + speaker_selections,
+            outputs=speaker_selections + [custom_voice_status]
+        )
+
         # Main generation function with streaming
         def generate_podcast_wrapper(num_speakers, script, speaker_1, speaker_2, speaker_3, speaker_4, cfg_scale, inference_steps, seed, disable_voice_cloning):
             """Wrapper function to handle the streaming generation call."""
@@ -1148,7 +1228,7 @@ def main():
             default_concurrency_limit=1  # Process one request at a time
         ).launch(
             share=args.share,
-            # server_port=args.port,
+            server_port=args.port,
             server_name="0.0.0.0" if args.share else "127.0.0.1",
             show_error=True,
             show_api=False  # Hide API docs for cleaner interface
