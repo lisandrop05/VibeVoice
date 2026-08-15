@@ -176,3 +176,6 @@ tags
 exp
 .gradio/
 MSFT-VV
+
+# Personal voice presets — recordings of real people, kept out of this public repo
+demo/voices/es-*.wav
